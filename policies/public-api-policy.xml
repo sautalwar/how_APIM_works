@@ -1,0 +1,43 @@
+<!--
+  PUBLIC API POLICY — Intentionally insecure for demo purposes!
+  This policy has OWASP violations that the scanner should catch.
+-->
+<policies>
+    <inbound>
+        <base />
+
+        <!-- VULNERABILITY: No JWT validation — anyone can access! -->
+        <!-- VULNERABILITY: Wildcard CORS — allows any origin -->
+        <cors allow-credentials="true">
+            <allowed-origins>
+                <origin>*</origin>
+            </allowed-origins>
+            <allowed-methods>
+                <method>GET</method>
+                <method>POST</method>
+                <method>PUT</method>
+                <method>DELETE</method>
+                <method>PATCH</method>
+                <method>TRACE</method>
+            </allowed-methods>
+            <allowed-headers>
+                <header>*</header>
+            </allowed-headers>
+        </cors>
+
+        <!-- VULNERABILITY: No rate limiting -->
+        <!-- VULNERABILITY: No request size limit -->
+    </inbound>
+
+    <backend>
+        <base />
+    </backend>
+
+    <outbound>
+        <base />
+        <!-- VULNERABILITY: No security headers added -->
+        <!-- VULNERABILITY: Server headers not removed -->
+    </outbound>
+
+    <!-- VULNERABILITY: No on-error section — stack traces may leak -->
+</policies>
