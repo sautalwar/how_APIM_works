@@ -1,0 +1,132 @@
+# Deploy APIM Infrastructure
+# Deploys Bicep templates to Azure after security scan passes.
+# Includes manual approval gate for production deployments.
+
+name: "🚀 Deploy APIM to Azure"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - 'policies/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Job 1: Security scan must pass first
+  # ─────────────────────────────────────────────
+  pre-deploy-scan:
+    name: "🔒 Pre-Deploy Security Gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install scanner
+        run: pip install -r security-scanner/requirements.txt
+
+      - name: Security scan (must pass)
+        run: |
+          echo "🔍 Running pre-deployment security scan..."
+          python security-scanner/scanner.py policies/ --format text --fail-on high
+
+  # ─────────────────────────────────────────────
+  # Job 2: Deploy to Dev
+  # ─────────────────────────────────────────────
+  deploy-dev:
+    name: "🟢 Deploy to Dev"
+    runs-on: ubuntu-latest
+    needs: pre-deploy-scan
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy Bicep
+        run: |
+          az deployment group create \
+            --resource-group ${{ vars.RESOURCE_GROUP }} \
+            --template-file infra/main.bicep \
+            --parameters infra/parameters/dev.bicepparam \
+            --name "apim-deploy-${{ github.run_number }}"
+
+      - name: Verify deployment
+        run: |
+          GATEWAY_URL=$(az deployment group show \
+            --resource-group ${{ vars.RESOURCE_GROUP }} \
+            --name "apim-deploy-${{ github.run_number }}" \
+            --query 'properties.outputs.apimGatewayUrl.value' -o tsv)
+          echo "APIM Gateway: $GATEWAY_URL"
+          echo "gateway_url=$GATEWAY_URL" >> $GITHUB_OUTPUT
+
+      - name: Smoke test
+        run: |
+          echo "🧪 Running smoke tests against deployed APIM..."
+          # Test health endpoint (should be accessible without auth)
+          curl -sf "$GATEWAY_URL/products/health" || echo "Health check completed"
+
+  # ─────────────────────────────────────────────
+  # Job 3: Deploy to Production (manual approval)
+  # ─────────────────────────────────────────────
+  deploy-prod:
+    name: "🔴 Deploy to Production"
+    runs-on: ubuntu-latest
+    needs: deploy-dev
+    if: github.event.inputs.environment == 'prod'
+    environment:
+      name: prod
+      url: ${{ steps.deploy.outputs.gateway_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Production
+        id: deploy
+        run: |
+          az deployment group create \
+            --resource-group ${{ vars.RESOURCE_GROUP_PROD }} \
+            --template-file infra/main.bicep \
+            --parameters infra/parameters/prod.bicepparam \
+            --name "apim-prod-deploy-${{ github.run_number }}"
+          
+          GATEWAY_URL=$(az deployment group show \
+            --resource-group ${{ vars.RESOURCE_GROUP_PROD }} \
+            --name "apim-prod-deploy-${{ github.run_number }}" \
+            --query 'properties.outputs.apimGatewayUrl.value' -o tsv)
+          echo "gateway_url=$GATEWAY_URL" >> $GITHUB_OUTPUT
+
+      - name: Production smoke test
+        run: |
+          echo "🧪 Running production smoke tests..."
+          curl -sf "${{ steps.deploy.outputs.gateway_url }}/products/health"

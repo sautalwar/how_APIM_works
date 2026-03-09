@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Node.js
+node_modules/
+npm-debug.log
+package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Azure
+.azure/
+*.tfstate
+*.tfstate.backup
+
+# Scanner output
+*.sarif
+policy-scan-results.*
+
+# Screenshots (tracked separately)
+demo/screenshots/*.png
+demo/screenshots/*.jpg
+!demo/screenshots/.gitkeep

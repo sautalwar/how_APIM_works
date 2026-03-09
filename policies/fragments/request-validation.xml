@@ -1,0 +1,39 @@
+<!--
+  POLICY FRAGMENT: Request Validation
+  Validate request body content type, size, and JSON schema.
+  Usage: <include-fragment fragment-id="request-validation" />
+-->
+<fragment>
+    <!-- Enforce content type -->
+    <check-header name="Content-Type" failed-check-httpcode="415"
+                  failed-check-error-message="Content-Type must be application/json"
+                  ignore-case="true">
+        <value>application/json</value>
+    </check-header>
+
+    <!-- Validate request body -->
+    <validate-content unspecified-content-type-action="prevent"
+                      max-size="102400"
+                      size-exceeded-action="prevent"
+                      errors-variable-name="requestValidationErrors">
+        <content type="application/json" validate-as="json" action="prevent" />
+    </validate-content>
+
+    <!-- Reject requests with suspicious patterns (basic SQLi / XSS) -->
+    <choose>
+        <when condition="@{
+            var body = context.Request.Body?.As&lt;string&gt;(preserveContent: true) ?? &quot;&quot;;
+            var suspicious = new[] { &quot;&lt;script&quot;, &quot;javascript:&quot;, &quot;DROP TABLE&quot;, &quot;; DELETE&quot;, 
+                                     &quot;UNION SELECT&quot;, &quot;1=1&quot;, &quot;OR 1=1&quot; };
+            return suspicious.Any(s =&gt; body.IndexOf(s, StringComparison.OrdinalIgnoreCase) &gt;= 0);
+        }">
+            <return-response>
+                <set-status code="400" reason="Bad Request" />
+                <set-header name="Content-Type" exists-action="override">
+                    <value>application/json</value>
+                </set-header>
+                <set-body>{"error": "Request contains invalid content"}</set-body>
+            </return-response>
+        </when>
+    </choose>
+</fragment>

@@ -1,0 +1,159 @@
+# APIM Policy Security Scan
+# Runs on every PR that touches policy files, Bicep infrastructure, or scanner code.
+# Performs: XML linting, policy security scanning, SARIF upload to GitHub Security tab.
+
+name: "🔒 APIM Policy Security Scan"
+
+on:
+  pull_request:
+    paths:
+      - 'policies/**'
+      - 'infra/**'
+      - 'security-scanner/**'
+  push:
+    branches: [main]
+    paths:
+      - 'policies/**'
+      - 'infra/**'
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Job 1: Validate XML syntax and Bicep lint
+  # ─────────────────────────────────────────────
+  lint:
+    name: "📋 Lint & Validate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate XML syntax
+        run: |
+          echo "🔍 Checking XML syntax for all policy files..."
+          errors=0
+          for file in $(find policies/ -name "*.xml"); do
+            if ! python3 -c "import xml.etree.ElementTree as ET; ET.parse('$file')" 2>/dev/null; then
+              echo "❌ Invalid XML: $file"
+              errors=$((errors + 1))
+            else
+              echo "✅ Valid: $file"
+            fi
+          done
+          if [ $errors -gt 0 ]; then
+            echo "::error::Found $errors XML syntax errors"
+            exit 1
+          fi
+          echo "✅ All XML files are valid"
+
+      - name: Lint Bicep templates
+        if: hashFiles('infra/**/*.bicep') != ''
+        run: |
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+          echo "✅ Bicep templates are valid"
+
+  # ─────────────────────────────────────────────
+  # Job 2: Run policy security scanner
+  # ─────────────────────────────────────────────
+  security-scan:
+    name: "🔬 Policy Security Scan"
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install scanner dependencies
+        run: pip install -r security-scanner/requirements.txt
+
+      - name: Run security scanner (text output)
+        run: |
+          echo "🔍 Scanning APIM policies for security issues..."
+          python security-scanner/scanner.py policies/ --format text || true
+
+      - name: Run security scanner (SARIF output)
+        run: |
+          python security-scanner/scanner.py policies/ \
+            --format sarif \
+            --output policy-scan-results.sarif \
+            --fail-on critical
+        continue-on-error: true
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: policy-scan-results.sarif
+          category: apim-policy-security
+
+      - name: Check for critical findings
+        run: |
+          python security-scanner/scanner.py policies/ \
+            --format json \
+            --fail-on high
+        id: security-check
+
+      - name: Comment PR with scan results
+        if: github.event_name == 'pull_request' && failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const output = execSync('python security-scanner/scanner.py policies/ --format json').toString();
+            const findings = JSON.parse(output);
+            const critical = findings.filter(f => f.severity === 'critical');
+            const high = findings.filter(f => f.severity === 'high');
+            
+            let body = '## 🔒 APIM Policy Security Scan Results\n\n';
+            body += `| Severity | Count |\n|----------|-------|\n`;
+            body += `| 🔴 Critical | ${critical.length} |\n`;
+            body += `| 🟠 High | ${high.length} |\n`;
+            body += `| Total | ${findings.length} |\n\n`;
+            
+            if (critical.length > 0 || high.length > 0) {
+              body += '### ⚠️ Blocking Issues\n\n';
+              [...critical, ...high].forEach(f => {
+                body += `- **[${f.rule_id}] ${f.rule_name}** (${f.severity})\n`;
+                body += `  - File: \`${f.file}\`\n`;
+                body += `  - Fix: ${f.recommendation}\n\n`;
+              });
+              body += '\n> This PR is blocked until critical/high issues are resolved.';
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body,
+            });
+
+  # ─────────────────────────────────────────────
+  # Job 3: Bicep what-if (on main branch only)
+  # ─────────────────────────────────────────────
+  whatif:
+    name: "🔮 Bicep What-If"
+    runs-on: ubuntu-latest
+    needs: security-scan
+    if: github.ref == 'refs/heads/main'
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Run what-if deployment
+        run: |
+          az deployment group what-if \
+            --resource-group ${{ vars.RESOURCE_GROUP }} \
+            --template-file infra/main.bicep \
+            --parameters infra/parameters/dev.bicepparam

@@ -1,0 +1,16 @@
+<!--
+  POLICY FRAGMENT: IP Filtering
+  Allow only known IP ranges and block everything else.
+  Usage: <include-fragment fragment-id="ip-filtering" />
+-->
+<fragment>
+    <ip-filter action="allow">
+        <!-- Corporate network -->
+        <address-range from="10.0.0.0" to="10.255.255.255" />
+        <!-- VPN exit points -->
+        <address>203.0.113.50</address>
+        <address>203.0.113.51</address>
+        <!-- Azure DevOps / GitHub Actions runners (if needed) -->
+        <address-range from="20.37.194.0" to="20.37.194.255" />
+    </ip-filter>
+</fragment>

@@ -1,0 +1,54 @@
+<!-- SECURE policy for testing — should pass all scanner rules -->
+<policies>
+    <inbound>
+        <base />
+        <validate-jwt header-name="Authorization"
+                      failed-validation-httpcode="401"
+                      require-expiration-time="true"
+                      require-signed-tokens="true">
+            <openid-config url="https://login.microsoftonline.com/tenant/v2.0/.well-known/openid-configuration" />
+            <audiences>
+                <audience>api://my-api</audience>
+            </audiences>
+        </validate-jwt>
+
+        <rate-limit-by-key calls="100" renewal-period="60"
+                           counter-key="@(context.Subscription.Id)" />
+
+        <cors allow-credentials="true">
+            <allowed-origins>
+                <origin>https://app.contoso.com</origin>
+            </allowed-origins>
+        </cors>
+
+        <validate-content max-size="102400" unspecified-content-type-action="prevent"
+                          size-exceeded-action="prevent">
+            <content type="application/json" validate-as="json" action="prevent" />
+        </validate-content>
+    </inbound>
+
+    <backend>
+        <base />
+        <set-backend-service base-url="https://my-secure-backend.azurewebsites.net" />
+    </backend>
+
+    <outbound>
+        <base />
+        <set-header name="Server" exists-action="delete" />
+        <set-header name="X-Powered-By" exists-action="delete" />
+        <set-header name="X-Content-Type-Options" exists-action="override">
+            <value>nosniff</value>
+        </set-header>
+        <set-header name="Strict-Transport-Security" exists-action="override">
+            <value>max-age=31536000; includeSubDomains</value>
+        </set-header>
+    </outbound>
+
+    <on-error>
+        <base />
+        <return-response>
+            <set-status code="500" reason="Internal Server Error" />
+            <set-body>{"error": "An error occurred"}</set-body>
+        </return-response>
+    </on-error>
+</policies>

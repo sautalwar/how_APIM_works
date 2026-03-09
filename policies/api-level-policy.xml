@@ -1,0 +1,89 @@
+<!--
+  API-LEVEL POLICY — Applied to the Products API
+  Inherits global policy via <base /> and adds API-specific security.
+-->
+<policies>
+    <inbound>
+        <base />
+
+        <!-- Require JWT authentication for this API -->
+        <validate-jwt header-name="Authorization"
+                      failed-validation-httpcode="401"
+                      failed-validation-error-message="Access denied. Valid JWT token required."
+                      require-expiration-time="true"
+                      require-signed-tokens="true"
+                      clock-skew="30">
+            <openid-config url="https://login.microsoftonline.com/{{tenant-id}}/v2.0/.well-known/openid-configuration" />
+            <audiences>
+                <audience>{{api-audience}}</audience>
+            </audiences>
+            <issuers>
+                <issuer>https://login.microsoftonline.com/{{tenant-id}}/v2.0</issuer>
+            </issuers>
+        </validate-jwt>
+
+        <!-- API-level rate limiting (per subscription) -->
+        <rate-limit-by-key calls="100"
+                           renewal-period="60"
+                           counter-key="@(context.Subscription.Id)" />
+
+        <!-- Daily quota -->
+        <quota-by-key calls="10000"
+                      renewal-period="86400"
+                      counter-key="@(context.Subscription.Id)" />
+
+        <!-- Restrict CORS to known origins -->
+        <cors allow-credentials="true">
+            <allowed-origins>
+                <origin>https://portal.contoso.com</origin>
+                <origin>https://app.contoso.com</origin>
+            </allowed-origins>
+            <allowed-methods>
+                <method>GET</method>
+                <method>POST</method>
+                <method>PUT</method>
+                <method>DELETE</method>
+            </allowed-methods>
+            <allowed-headers>
+                <header>Authorization</header>
+                <header>Content-Type</header>
+                <header>X-Correlation-Id</header>
+            </allowed-headers>
+            <expose-headers>
+                <header>X-Correlation-Id</header>
+                <header>X-RateLimit-Remaining</header>
+            </expose-headers>
+        </cors>
+
+        <!-- Validate request content type -->
+        <check-header name="Content-Type" failed-check-httpcode="415"
+                      failed-check-error-message="Unsupported content type"
+                      ignore-case="true">
+            <value>application/json</value>
+        </check-header>
+    </inbound>
+
+    <backend>
+        <base />
+        <!-- Authenticate to backend using managed identity -->
+        <authentication-managed-identity resource="{{backend-app-id}}" />
+    </backend>
+
+    <outbound>
+        <base />
+
+        <!-- Add API version to response -->
+        <set-header name="X-API-Version" exists-action="override">
+            <value>1.0</value>
+        </set-header>
+
+        <!-- Cache control for API responses -->
+        <set-header name="Cache-Control" exists-action="override">
+            <value>no-store, no-cache, must-revalidate</value>
+        </set-header>
+    </outbound>
+
+    <on-error>
+        <base />
+    </on-error>
+</policies>

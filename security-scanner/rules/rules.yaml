@@ -1,0 +1,202 @@
+# APIM Policy Security Rules
+# Each rule checks for a specific security concern in APIM policy XML files.
+# Severity: critical, high, medium, low
+# Type: required (must be present), forbidden (must not be present), pattern (regex match)
+
+rules:
+  # ============================================
+  # AUTHENTICATION RULES
+  # ============================================
+  - id: AUTH001
+    name: "Missing JWT Validation"
+    description: "API policies should include validate-jwt to enforce authentication"
+    severity: critical
+    category: authentication
+    owasp: API2
+    type: required
+    scope: api  # Only check at API or operation level, not global
+    xpath: ".//validate-jwt"
+    recommendation: "Add <validate-jwt> in the <inbound> section with proper issuer, audience, and required claims"
+
+  - id: AUTH002
+    name: "JWT Missing Signed Token Requirement"
+    description: "validate-jwt should require signed tokens to prevent token forgery"
+    severity: critical
+    category: authentication
+    owasp: API2
+    type: required_attribute
+    xpath: ".//validate-jwt"
+    attribute: "require-signed-tokens"
+    expected_value: "true"
+    recommendation: "Set require-signed-tokens='true' on <validate-jwt>"
+
+  - id: AUTH003
+    name: "JWT Missing Expiration Requirement"
+    description: "validate-jwt should require token expiration to prevent replay attacks"
+    severity: high
+    category: authentication
+    owasp: API2
+    type: required_attribute
+    xpath: ".//validate-jwt"
+    attribute: "require-expiration-time"
+    expected_value: "true"
+    recommendation: "Set require-expiration-time='true' on <validate-jwt>"
+
+  # ============================================
+  # RATE LIMITING RULES
+  # ============================================
+  - id: RATE001
+    name: "Missing Rate Limiting"
+    description: "APIs should have rate limiting to prevent abuse and DDoS"
+    severity: high
+    category: rate-limiting
+    owasp: API4
+    type: required
+    xpath: ".//rate-limit-by-key|.//rate-limit"
+    recommendation: "Add <rate-limit-by-key> in the <inbound> section"
+
+  - id: RATE002
+    name: "Excessive Rate Limit"
+    description: "Rate limit allows more than 1000 calls per minute which may be too permissive"
+    severity: medium
+    category: rate-limiting
+    owasp: API4
+    type: attribute_threshold
+    xpath: ".//rate-limit-by-key|.//rate-limit"
+    attribute: "calls"
+    max_value: 1000
+    recommendation: "Review rate limit threshold. 100-500 calls/minute is typical for most APIs"
+
+  # ============================================
+  # CORS RULES
+  # ============================================
+  - id: CORS001
+    name: "Wildcard CORS Origin"
+    description: "CORS allows all origins (*), enabling any website to call your API"
+    severity: critical
+    category: cors
+    owasp: API8
+    type: forbidden_content
+    xpath: ".//cors/allowed-origins/origin"
+    forbidden_value: "*"
+    recommendation: "Replace wildcard origin with specific allowed domains"
+
+  - id: CORS002
+    name: "CORS Credentials with Wildcard"
+    description: "allow-credentials=true with wildcard origin allows any site to make authenticated requests"
+    severity: critical
+    category: cors
+    owasp: API8
+    type: compound_custom
+    check: cors_credentials_wildcard
+    recommendation: "Never use allow-credentials='true' with wildcard origins"
+
+  # ============================================
+  # HEADER SECURITY RULES
+  # ============================================
+  - id: HDR001
+    name: "Server Header Not Removed"
+    description: "Server header reveals backend technology and version information"
+    severity: medium
+    category: headers
+    owasp: API8
+    type: required_pattern
+    scope: outbound
+    pattern: "set-header[^>]*name=[\"']Server[\"'][^>]*exists-action=[\"']delete[\"']"
+    recommendation: "Add <set-header name='Server' exists-action='delete' /> in <outbound>"
+
+  - id: HDR002
+    name: "Missing X-Content-Type-Options"
+    description: "X-Content-Type-Options: nosniff prevents MIME type sniffing attacks"
+    severity: medium
+    category: headers
+    owasp: API8
+    type: required_pattern
+    scope: outbound
+    pattern: "set-header[^>]*name=[\"']X-Content-Type-Options[\"']"
+    recommendation: "Add X-Content-Type-Options: nosniff in outbound headers"
+
+  - id: HDR003
+    name: "Missing Strict-Transport-Security"
+    description: "HSTS header ensures browsers only use HTTPS"
+    severity: high
+    category: headers
+    owasp: API8
+    type: required_pattern
+    scope: outbound
+    pattern: "set-header[^>]*name=[\"']Strict-Transport-Security[\"']"
+    recommendation: "Add Strict-Transport-Security header with max-age >= 31536000"
+
+  - id: HDR004
+    name: "X-Powered-By Header Not Removed"
+    description: "X-Powered-By reveals framework information to attackers"
+    severity: medium
+    category: headers
+    owasp: API8
+    type: required_pattern
+    scope: outbound
+    pattern: "set-header[^>]*name=[\"']X-Powered-By[\"'][^>]*exists-action=[\"']delete[\"']"
+    recommendation: "Add <set-header name='X-Powered-By' exists-action='delete' /> in <outbound>"
+
+  # ============================================
+  # ERROR HANDLING RULES
+  # ============================================
+  - id: ERR001
+    name: "Missing On-Error Section"
+    description: "No on-error section means unhandled errors may leak stack traces"
+    severity: high
+    category: error-handling
+    owasp: API8
+    type: required
+    xpath: ".//on-error/return-response"
+    recommendation: "Add an <on-error> section with <return-response> that returns safe error messages"
+
+  # ============================================
+  # NETWORK SECURITY RULES
+  # ============================================
+  - id: NET001
+    name: "Backend URL Uses HTTP"
+    description: "Backend service URL uses unencrypted HTTP instead of HTTPS"
+    severity: critical
+    category: network
+    owasp: API8
+    type: forbidden_pattern
+    pattern: "base-url=[\"']http://(?!localhost)"
+    recommendation: "Use HTTPS for all backend service URLs"
+
+  - id: NET002
+    name: "References to Internal IPs"
+    description: "Policy references internal/private IP addresses which could indicate SSRF risk"
+    severity: high
+    category: network
+    owasp: API7
+    type: forbidden_pattern
+    pattern: "(169\\.254\\.169\\.254|127\\.0\\.0\\.1|0\\.0\\.0\\.0|metadata\\.google)"
+    recommendation: "Remove references to internal IP addresses and metadata endpoints"
+
+  # ============================================
+  # HTTP METHOD RULES
+  # ============================================
+  - id: HTTP001
+    name: "TRACE Method Not Blocked"
+    description: "TRACE method can be used for Cross-Site Tracing (XST) attacks"
+    severity: medium
+    category: http-methods
+    owasp: API8
+    type: required_pattern
+    pattern: "TRACE"
+    context: "method blocking policy"
+    recommendation: "Block TRACE method in global or API-level inbound policy"
+
+  # ============================================
+  # DATA PROTECTION RULES
+  # ============================================
+  - id: DATA001
+    name: "No Request Size Limit"
+    description: "No maximum request body size allows resource exhaustion attacks"
+    severity: high
+    category: data-protection
+    owasp: API4
+    type: required
+    xpath: ".//validate-content[@max-size]"
+    recommendation: "Add <validate-content max-size='102400'> to limit request body size"

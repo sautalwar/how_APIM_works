@@ -1,0 +1,34 @@
+<!-- INSECURE policy for testing — should trigger multiple scanner findings -->
+<policies>
+    <inbound>
+        <base />
+        <!-- ❌ No JWT validation (AUTH001) -->
+        <!-- ❌ No rate limiting (RATE001) -->
+
+        <!-- ❌ Wildcard CORS origin (CORS001) -->
+        <cors allow-credentials="true">
+            <allowed-origins>
+                <origin>*</origin>
+            </allowed-origins>
+        </cors>
+
+        <!-- ❌ No request size validation (DATA001) -->
+    </inbound>
+
+    <backend>
+        <base />
+        <!-- ❌ HTTP backend URL (NET001) -->
+        <set-backend-service base-url="http://my-insecure-backend.example.com" />
+    </backend>
+
+    <outbound>
+        <base />
+        <!-- ❌ No security headers removed (HDR001, HDR004) -->
+        <!-- ❌ No security headers added (HDR002, HDR003) -->
+    </outbound>
+
+    <!-- ❌ No on-error section with custom handling (ERR001) -->
+    <on-error>
+        <base />
+    </on-error>
+</policies>
