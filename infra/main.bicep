@@ -48,6 +48,8 @@ module apim 'modules/apim.bicep' = {
     publisherEmail: publisherEmail
     publisherName: publisherName
     tags: tags
+    tenantId: tenantId
+    apiAudience: apiAudience
   }
 }
 

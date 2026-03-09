@@ -6,7 +6,7 @@
     <inbound>
         <base />
 
-        <!-- Require JWT authentication for this API -->
+        <!-- Require JWT authentication for this API (OWASP API2) -->
         <validate-jwt header-name="Authorization"
                       failed-validation-httpcode="401"
                       failed-validation-error-message="Access denied. Valid JWT token required."
@@ -22,17 +22,12 @@
             </issuers>
         </validate-jwt>
 
-        <!-- API-level rate limiting (per subscription) -->
+        <!-- API-level rate limiting per subscription (OWASP API4) -->
         <rate-limit-by-key calls="100"
                            renewal-period="60"
                            counter-key="@(context.Subscription.Id)" />
 
-        <!-- Daily quota -->
-        <quota-by-key calls="10000"
-                      renewal-period="86400"
-                      counter-key="@(context.Subscription.Id)" />
-
-        <!-- Restrict CORS to known origins -->
+        <!-- Restrict CORS to known origins (OWASP API8) -->
         <cors allow-credentials="true">
             <allowed-origins>
                 <origin>https://portal.contoso.com</origin>
@@ -54,19 +49,10 @@
                 <header>X-RateLimit-Remaining</header>
             </expose-headers>
         </cors>
-
-        <!-- Validate request content type -->
-        <check-header name="Content-Type" failed-check-httpcode="415"
-                      failed-check-error-message="Unsupported content type"
-                      ignore-case="true">
-            <value>application/json</value>
-        </check-header>
     </inbound>
 
     <backend>
         <base />
-        <!-- Authenticate to backend using managed identity -->
-        <authentication-managed-identity resource="{{backend-app-id}}" />
     </backend>
 
     <outbound>

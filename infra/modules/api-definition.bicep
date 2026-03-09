@@ -33,7 +33,6 @@ resource api 'Microsoft.ApiManagement/service/apis@2023-09-01-preview' = {
       query: 'subscription-key'
     }
     serviceUrl: backendUrl
-    apiVersion: 'v1'
     isCurrent: true
   }
 }
@@ -145,6 +144,7 @@ resource product 'Microsoft.ApiManagement/service/products@2023-09-01-preview' =
 resource productApi 'Microsoft.ApiManagement/service/products/apis@2023-09-01-preview' = {
   parent: product
   name: apiName
+  dependsOn: [api]
 }
 
 output apiName string = api.name

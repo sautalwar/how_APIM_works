@@ -18,6 +18,12 @@ param publisherName string
 @description('Resource tags')
 param tags object = {}
 
+@description('Azure AD Tenant ID for Named Values')
+param tenantId string = ''
+
+@description('API Audience for Named Values')
+param apiAudience string = ''
+
 resource apim 'Microsoft.ApiManagement/service@2023-09-01-preview' = {
   name: name
   location: location
@@ -102,6 +108,27 @@ resource apimDiagnostics 'Microsoft.ApiManagement/service/diagnostics@2023-09-01
         body: { bytes: 1024 }
       }
     }
+  }
+}
+
+// Named Values for policy variable substitution ({{tenant-id}}, {{api-audience}})
+resource namedValueTenantId 'Microsoft.ApiManagement/service/namedValues@2023-09-01-preview' = if (!empty(tenantId)) {
+  parent: apim
+  name: 'tenant-id'
+  properties: {
+    displayName: 'tenant-id'
+    value: tenantId
+    secret: false
+  }
+}
+
+resource namedValueApiAudience 'Microsoft.ApiManagement/service/namedValues@2023-09-01-preview' = if (!empty(apiAudience)) {
+  parent: apim
+  name: 'api-audience'
+  properties: {
+    displayName: 'api-audience'
+    value: apiAudience
+    secret: false
   }
 }
 
