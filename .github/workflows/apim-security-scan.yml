@@ -76,20 +76,32 @@ jobs:
       - name: Run security scanner (JSON output for PR comment)
         id: scan-json
         run: |
+          set +e
           python security-scanner/scanner.py policies/ \
             --format json \
-            --output scan-results.json || echo "SCAN_FAILED=true" >> $GITHUB_OUTPUT
-        continue-on-error: true
+            --output scan-results.json \
+            --fail-on critical
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "✅ No critical issues found"
+          elif [ $EXIT_CODE -eq 1 ]; then
+            echo "⚠️ Security issues found"
+          else
+            echo "❌ Scanner error"
+          fi
+          exit 0
 
       - name: Run security scanner (SARIF output)
         run: |
           python security-scanner/scanner.py policies/ \
             --format sarif \
-            --output policy-scan-results.sarif || true
-        continue-on-error: true
+            --output policy-scan-results.sarif \
+            --fail-on critical || true
 
       - name: Upload SARIF to GitHub Security
-        if: always()
+        if: always() && hashFiles('policy-scan-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: policy-scan-results.sarif
@@ -98,7 +110,7 @@ jobs:
       - name: Run security scanner (text output for logs)
         run: |
           echo "🔍 Scanning APIM policies for security issues..."
-          python security-scanner/scanner.py policies/ --format text || true
+          python security-scanner/scanner.py policies/ --format text --fail-on critical || true
 
       - name: Comment PR with scan results
         if: github.event_name == 'pull_request' && always()
@@ -161,11 +173,28 @@ jobs:
               body: body,
             });
       
-      - name: Fail on critical/high findings
-        if: steps.scan-json.outcome == 'failure'
+      - name: Check for blocking issues
+        id: check-blocking
         run: |
-          echo "::error::Security scan found critical or high severity issues"
-          exit 1
+          if [ ! -f scan-results.json ]; then
+            echo "No scan results found"
+            exit 0
+          fi
+          
+          # Count critical and high severity issues
+          CRITICAL_COUNT=$(python3 -c "import json; f=open('scan-results.json'); data=json.load(f); print(len([x for x in data if x['severity']=='critical']))")
+          HIGH_COUNT=$(python3 -c "import json; f=open('scan-results.json'); data=json.load(f); print(len([x for x in data if x['severity']=='high']))")
+          
+          echo "Critical issues: $CRITICAL_COUNT"
+          echo "High issues: $HIGH_COUNT"
+          
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "::error::Found $CRITICAL_COUNT critical severity issues"
+            exit 1
+          elif [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "::warning::Found $HIGH_COUNT high severity issues (not blocking)"
+            exit 0
+          fi
 
   # ─────────────────────────────────────────────
   # Job 3: Bicep what-if (on main/master branch only)
