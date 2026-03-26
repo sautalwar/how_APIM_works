@@ -1,32 +1,92 @@
-<!--
-  PUBLIC API POLICY — Intentionally insecure for demo purposes!
-  This policy has OWASP violations that the scanner should catch.
+<!-- 
+  PUBLIC API POLICY — Secure API policy for partner integration
+  Includes JWT validation, proper CORS, rate limiting, and security headers
+  OWASP API Security Top 10 compliant
 -->
 <policies>
     <inbound>
         <base />
+        
+        <!-- JWT Validation (OWASP API2 - Broken Authentication) -->
+        <validate-jwt header-name="Authorization" 
+                      failed-validation-httpcode="401" 
+                      failed-validation-error-message="Unauthorized. Valid JWT token required."
+                      require-expiration-time="true"
+                      require-signed-tokens="true">
+            <openid-config url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration" />
+            <audiences>
+                <audience>api://your-api-audience</audience>
+            </audiences>
+            <issuers>
+                <issuer>https://sts.windows.net/your-tenant-id/</issuer>
+            </issuers>
+            <required-claims>
+                <claim name="roles" match="any">
+                    <value>API.Read</value>
+                    <value>API.Write</value>
+                </claim>
+            </required-claims>
+        </validate-jwt>
 
-        <!-- VULNERABILITY: No JWT validation — anyone can access! -->
-        <!-- VULNERABILITY: Wildcard CORS — allows any origin -->
-        <cors allow-credentials="true">
+        <!-- Rate Limiting (OWASP API4 - Unrestricted Resource Consumption) -->
+        <rate-limit-by-key calls="100"
+                           renewal-period="60"
+                           counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)"
+                           remaining-calls-header-name="X-RateLimit-Remaining"
+                           total-calls-header-name="X-RateLimit-Limit" />
+
+        <!-- CORS with specific origins (OWASP API8 - Security Misconfiguration) -->
+        <cors allow-credentials="false">
             <allowed-origins>
-                <origin>*</origin>
+                <origin>https://your-app.azurewebsites.net</origin>
+                <origin>https://partner-portal.example.com</origin>
             </allowed-origins>
             <allowed-methods>
                 <method>GET</method>
                 <method>POST</method>
                 <method>PUT</method>
                 <method>DELETE</method>
-                <method>PATCH</method>
-                <method>TRACE</method>
             </allowed-methods>
             <allowed-headers>
-                <header>*</header>
+                <header>Authorization</header>
+                <header>Content-Type</header>
+                <header>Accept</header>
             </allowed-headers>
+            <expose-headers>
+                <header>X-RateLimit-Remaining</header>
+                <header>X-RateLimit-Limit</header>
+            </expose-headers>
         </cors>
 
-        <!-- VULNERABILITY: No rate limiting -->
-        <!-- VULNERABILITY: No request size limit -->
+        <!-- Request Validation (OWASP API8 - Security Misconfiguration) -->
+        <validate-content unspecified-content-type-action="prevent" 
+                          max-size="102400" 
+                          size-exceeded-action="detect" 
+                          errors-variable-name="requestValidationErrors">
+            <content type="application/json" 
+                     validate-as="json" 
+                     action="prevent" />
+        </validate-content>
+
+        <!-- IP Filtering (Optional - uncomment if needed) -->
+        <!--
+        <ip-filter action="allow">
+            <address>203.0.113.0/24</address>
+            <address>198.51.100.0/24</address>
+        </ip-filter>
+        -->
+
+        <!-- Block TRACE method (OWASP API8 - Security Misconfiguration) -->
+        <choose>
+            <when condition="@(context.Request.Method.Equals("TRACE", StringComparison.OrdinalIgnoreCase))">
+                <return-response>
+                    <set-status code="405" reason="Method Not Allowed" />
+                    <set-header name="Allow" exists-action="override">
+                        <value>GET, POST, PUT, DELETE</value>
+                    </set-header>
+                </return-response>
+            </when>
+        </choose>
     </inbound>
 
     <backend>
@@ -35,9 +95,37 @@
 
     <outbound>
         <base />
-        <!-- VULNERABILITY: No security headers added -->
-        <!-- VULNERABILITY: Server headers not removed -->
+        
+        <!-- Security Headers (OWASP API8) -->
+        <set-header name="X-Content-Type-Options" exists-action="override">
+            <value>nosniff</value>
+        </set-header>
+        <set-header name="Strict-Transport-Security" exists-action="override">
+            <value>max-age=31536000; includeSubDomains</value>
+        </set-header>
+        <set-header name="X-Frame-Options" exists-action="override">
+            <value>DENY</value>
+        </set-header>
+        
+        <!-- Remove backend technology headers -->
+        <set-header name="Server" exists-action="delete" />
+        <set-header name="X-Powered-By" exists-action="delete" />
+        <set-header name="X-AspNet-Version" exists-action="delete" />
     </outbound>
 
-    <!-- VULNERABILITY: No on-error section — stack traces may leak -->
+    <on-error>
+        <!-- Prevent information disclosure in error responses (OWASP API8) -->
+        <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+        </set-header>
+        <set-body>@{
+            return new JObject(
+                new JProperty("error", new JObject(
+                    new JProperty("code", context.LastError.Reason),
+                    new JProperty("message", "An error occurred while processing your request.")
+                ))
+            ).ToString();
+        }</set-body>
+        <set-status code="500" reason="Internal Server Error" />
+    </on-error>
 </policies>

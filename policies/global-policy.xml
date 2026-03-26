@@ -5,12 +5,39 @@
 -->
 <policies>
     <inbound>
+        <!-- JWT Validation (OWASP API2 - Broken Authentication) -->
+        <validate-jwt header-name="Authorization" 
+                      failed-validation-httpcode="401" 
+                      failed-validation-error-message="Unauthorized. Valid JWT token required."
+                      require-expiration-time="true"
+                      require-signed-tokens="true">
+            <openid-config url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration" />
+            <audiences>
+                <audience>api://default</audience>
+            </audiences>
+            <issuers>
+                <issuer>https://sts.windows.net/common/</issuer>
+            </issuers>
+        </validate-jwt>
+
         <!-- Global rate limiting per IP (OWASP API4) -->
         <rate-limit-by-key calls="60" 
                            renewal-period="60" 
                            counter-key="@(context.Request.IpAddress)"
                            remaining-calls-header-name="X-RateLimit-Remaining"
                            total-calls-header-name="X-RateLimit-Limit" />
+
+        <!-- Block TRACE method (OWASP API8 - Security Misconfiguration) -->
+        <choose>
+            <when condition="@(context.Request.Method.Equals("TRACE", StringComparison.OrdinalIgnoreCase))">
+                <return-response>
+                    <set-status code="405" reason="Method Not Allowed" />
+                </return-response>
+            </when>
+        </choose>
+
+        <!-- Request body size validation (OWASP API4) -->
+        <validate-content max-size="102400" size-exceeded-action="detect" />
 
         <!-- Set correlation ID for distributed tracing -->
         <set-header name="X-Correlation-Id" exists-action="skip">
@@ -51,5 +78,19 @@
         </set-header>
     </outbound>
 
-    <on-error />
+    <on-error>
+        <!-- Prevent information disclosure in error responses (OWASP API8) -->
+        <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+        </set-header>
+        <set-body>@{
+            return new JObject(
+                new JProperty("error", new JObject(
+                    new JProperty("code", "InternalError"),
+                    new JProperty("message", "An error occurred while processing your request."),
+                    new JProperty("correlationId", context.RequestId.ToString())
+                ))
+            ).ToString();
+        }</set-body>
+    </on-error>
 </policies>
