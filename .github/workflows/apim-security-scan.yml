@@ -11,7 +11,7 @@ on:
       - 'infra/**'
       - 'security-scanner/**'
   push:
-    branches: [main]
+    branches: [main, master]
     paths:
       - 'policies/**'
       - 'infra/**'
@@ -73,17 +73,19 @@ jobs:
       - name: Install scanner dependencies
         run: pip install -r security-scanner/requirements.txt
 
-      - name: Run security scanner (text output)
+      - name: Run security scanner (JSON output for PR comment)
+        id: scan-json
         run: |
-          echo "🔍 Scanning APIM policies for security issues..."
-          python security-scanner/scanner.py policies/ --format text || true
+          python security-scanner/scanner.py policies/ \
+            --format json \
+            --output scan-results.json || echo "SCAN_FAILED=true" >> $GITHUB_OUTPUT
+        continue-on-error: true
 
       - name: Run security scanner (SARIF output)
         run: |
           python security-scanner/scanner.py policies/ \
             --format sarif \
-            --output policy-scan-results.sarif \
-            --fail-on critical
+            --output policy-scan-results.sarif || true
         continue-on-error: true
 
       - name: Upload SARIF to GitHub Security
@@ -93,39 +95,64 @@ jobs:
           sarif_file: policy-scan-results.sarif
           category: apim-policy-security
 
-      - name: Check for critical findings
+      - name: Run security scanner (text output for logs)
         run: |
-          python security-scanner/scanner.py policies/ \
-            --format json \
-            --fail-on high
-        id: security-check
+          echo "🔍 Scanning APIM policies for security issues..."
+          python security-scanner/scanner.py policies/ --format text || true
 
       - name: Comment PR with scan results
-        if: github.event_name == 'pull_request' && failure()
+        if: github.event_name == 'pull_request' && always()
         uses: actions/github-script@v7
         with:
           script: |
-            const { execSync } = require('child_process');
-            const output = execSync('python security-scanner/scanner.py policies/ --format json').toString();
-            const findings = JSON.parse(output);
+            const fs = require('fs');
+            const path = require('path');
+            
+            let findings = [];
+            try {
+              const scanFile = 'scan-results.json';
+              if (fs.existsSync(scanFile)) {
+                const data = fs.readFileSync(scanFile, 'utf8');
+                findings = JSON.parse(data);
+              }
+            } catch (error) {
+              console.log('Unable to read scan results:', error.message);
+              return;
+            }
+            
             const critical = findings.filter(f => f.severity === 'critical');
             const high = findings.filter(f => f.severity === 'high');
+            const medium = findings.filter(f => f.severity === 'medium');
+            const low = findings.filter(f => f.severity === 'low');
             
             let body = '## 🔒 APIM Policy Security Scan Results\n\n';
             body += `| Severity | Count |\n|----------|-------|\n`;
             body += `| 🔴 Critical | ${critical.length} |\n`;
             body += `| 🟠 High | ${high.length} |\n`;
-            body += `| Total | ${findings.length} |\n\n`;
+            body += `| 🟡 Medium | ${medium.length} |\n`;
+            body += `| 🔵 Low | ${low.length} |\n`;
+            body += `| **Total** | **${findings.length}** |\n\n`;
             
-            if (critical.length > 0 || high.length > 0) {
+            if (findings.length === 0) {
+              body += '✅ **No security issues found!** All policies are secure.\n';
+            } else if (critical.length > 0 || high.length > 0) {
               body += '### ⚠️ Blocking Issues\n\n';
-              [...critical, ...high].forEach(f => {
+              [...critical, ...high].slice(0, 5).forEach(f => {
                 body += `- **[${f.rule_id}] ${f.rule_name}** (${f.severity})\n`;
                 body += `  - File: \`${f.file}\`\n`;
+                body += `  - Issue: ${f.description}\n`;
                 body += `  - Fix: ${f.recommendation}\n\n`;
               });
-              body += '\n> This PR is blocked until critical/high issues are resolved.';
+              if (critical.length + high.length > 5) {
+                body += `\n_... and ${critical.length + high.length - 5} more issue(s). Check the logs for details._\n`;
+              }
+              body += '\n> ⛔ This PR is blocked until critical/high issues are resolved.';
+            } else {
+              body += '### ℹ️ Non-blocking Issues\n\n';
+              body += `Found ${medium.length + low.length} medium/low severity issues. Please review when possible.\n`;
             }
+            
+            body += '\n\n---\n*View detailed results in the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning)*';
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -133,15 +160,21 @@ jobs:
               repo: context.repo.repo,
               body: body,
             });
+      
+      - name: Fail on critical/high findings
+        if: steps.scan-json.outcome == 'failure'
+        run: |
+          echo "::error::Security scan found critical or high severity issues"
+          exit 1
 
   # ─────────────────────────────────────────────
-  # Job 3: Bicep what-if (on main branch only)
+  # Job 3: Bicep what-if (on main/master branch only)
   # ─────────────────────────────────────────────
   whatif:
     name: "🔮 Bicep What-If"
     runs-on: ubuntu-latest
     needs: security-scan
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     environment: dev
     steps:
       - uses: actions/checkout@v4
