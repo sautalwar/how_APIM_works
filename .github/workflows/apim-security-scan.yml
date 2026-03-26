@@ -173,6 +173,71 @@ jobs:
               body: body,
             });
       
+      - name: Display security findings
+        if: always()
+        run: |
+          if [ ! -f scan-results.json ]; then
+            echo "No scan results found"
+            exit 0
+          fi
+          
+          echo "======================================================================"
+          echo "                    SECURITY SCAN FINDINGS                          "
+          echo "======================================================================"
+          echo ""
+          
+          # Display summary counts
+          python3 << 'EOF'
+          import json
+          
+          with open('scan-results.json') as f:
+              findings = json.load(f)
+          
+          critical = [f for f in findings if f['severity'] == 'critical']
+          high = [f for f in findings if f['severity'] == 'high']
+          medium = [f for f in findings if f['severity'] == 'medium']
+          low = [f for f in findings if f['severity'] == 'low']
+          
+          print(f"📊 SUMMARY:")
+          print(f"  🔴 Critical: {len(critical)}")
+          print(f"  🟠 High: {len(high)}")
+          print(f"  🟡 Medium: {len(medium)}")
+          print(f"  🔵 Low: {len(low)}")
+          print(f"  📋 Total: {len(findings)}")
+          print("")
+          
+          if critical:
+              print("="*70)
+              print("🔴 CRITICAL SEVERITY ISSUES (BLOCKING)")
+              print("="*70)
+              for i, f in enumerate(critical, 1):
+                  print(f"\n[{i}] {f['rule_id']}: {f['rule_name']}")
+                  print(f"    File: {f['file']}")
+                  print(f"    Category: {f['category']} | OWASP: {f['owasp']}")
+                  print(f"    Issue: {f['description']}")
+                  print(f"    Fix: {f['recommendation']}")
+          
+          if high:
+              print("\n" + "="*70)
+              print("🟠 HIGH SEVERITY ISSUES (WARNING)")
+              print("="*70)
+              for i, f in enumerate(high, 1):
+                  print(f"\n[{i}] {f['rule_id']}: {f['rule_name']}")
+                  print(f"    File: {f['file']}")
+                  print(f"    Category: {f['category']} | OWASP: {f['owasp']}")
+                  print(f"    Issue: {f['description']}")
+                  print(f"    Fix: {f['recommendation']}")
+          
+          if medium:
+              print(f"\n{'='*70}")
+              print(f"🟡 MEDIUM SEVERITY: {len(medium)} issues (see logs above for details)")
+          
+          if low:
+              print(f"🔵 LOW SEVERITY: {len(low)} issues (see logs above for details)")
+          
+          print("\n" + "="*70)
+          EOF
+      
       - name: Check for blocking issues
         id: check-blocking
         run: |
@@ -189,7 +254,7 @@ jobs:
           echo "High issues: $HIGH_COUNT"
           
           if [ "$CRITICAL_COUNT" -gt 0 ]; then
-            echo "::error::Found $CRITICAL_COUNT critical severity issues"
+            echo "::error::Found $CRITICAL_COUNT critical severity issues - Review the 'Display security findings' step above for details"
             exit 1
           elif [ "$HIGH_COUNT" -gt 0 ]; then
             echo "::warning::Found $HIGH_COUNT high severity issues (not blocking)"
