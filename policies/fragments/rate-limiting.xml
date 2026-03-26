@@ -4,6 +4,18 @@
   Usage: <include-fragment fragment-id="rate-limiting" />
 -->
 <fragment>
+    <!-- JWT Validation for secure rate limiting (OWASP API2) -->
+    <validate-jwt header-name="Authorization" 
+                  failed-validation-httpcode="401" 
+                  failed-validation-error-message="Unauthorized. Valid JWT token required."
+                  require-expiration-time="true"
+                  require-signed-tokens="true">
+        <openid-config url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration" />
+        <audiences>
+            <audience>api://default</audience>
+        </audiences>
+    </validate-jwt>
+
     <!-- Per-subscription rate limit: 100 calls/minute -->
     <rate-limit-by-key calls="100"
                        renewal-period="60"
