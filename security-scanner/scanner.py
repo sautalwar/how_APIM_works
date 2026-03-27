@@ -65,7 +65,16 @@ class PolicyScanner:
             ))
             return findings
 
+        # Check if this is a policy fragment (not a full policy)
+        is_fragment = root.tag == "fragment" or "fragments" in file_path.replace("\\", "/")
+
         for rule in self.rules:
+            # Skip certain rules for fragments (they're not full policies)
+            if is_fragment:
+                skip_rules_for_fragments = ["AUTH001", "RATE001", "ERR001", "HTTP001", "DATA001"]
+                if rule.get("id") in skip_rules_for_fragments:
+                    continue
+                    
             result = self._check_rule(rule, root, content, file_path)
             if result:
                 findings.append(result)

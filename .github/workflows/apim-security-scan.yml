@@ -20,6 +20,7 @@ permissions:
   contents: read
   security-events: write
   pull-requests: write
+  id-token: write
 
 jobs:
   # ─────────────────────────────────────────────
@@ -166,7 +167,7 @@ jobs:
             
             body += '\n\n---\n*View detailed results in the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning)*';
             
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -276,7 +277,9 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Run what-if deployment
         run: |
