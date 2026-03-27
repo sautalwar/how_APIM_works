@@ -78,7 +78,7 @@
 
         <!-- Block TRACE method (OWASP API8 - Security Misconfiguration) -->
         <choose>
-            <when condition="@(context.Request.Method.Equals("TRACE", StringComparison.OrdinalIgnoreCase))">
+            <when condition="@(context.Request.Method == &quot;TRACE&quot;)">
                 <return-response>
                     <set-status code="405" reason="Method Not Allowed" />
                     <set-header name="Allow" exists-action="override">
@@ -115,17 +115,19 @@
 
     <on-error>
         <!-- Prevent information disclosure in error responses (OWASP API8) -->
-        <set-header name="Content-Type" exists-action="override">
-            <value>application/json</value>
-        </set-header>
-        <set-body>@{
-            return new JObject(
-                new JProperty("error", new JObject(
-                    new JProperty("code", context.LastError.Reason),
-                    new JProperty("message", "An error occurred while processing your request.")
-                ))
-            ).ToString();
-        }</set-body>
-        <set-status code="500" reason="Internal Server Error" />
+        <return-response>
+            <set-status code="500" reason="Internal Server Error" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-body>@{
+                return new JObject(
+                    new JProperty("error", new JObject(
+                        new JProperty("code", context.LastError.Reason),
+                        new JProperty("message", "An error occurred while processing your request.")
+                    ))
+                ).ToString();
+            }</set-body>
+        </return-response>
     </on-error>
 </policies>

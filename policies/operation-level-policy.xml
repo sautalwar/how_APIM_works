@@ -8,7 +8,9 @@
         <base />
 
         <!-- Require Admin role for this operation -->
-        <validate-jwt header-name="Authorization" require-signed-tokens="true">
+        <validate-jwt header-name="Authorization" 
+                      require-signed-tokens="true"
+                      require-expiration-time="true">
             <openid-config url="https://login.microsoftonline.com/{{tenant-id}}/v2.0/.well-known/openid-configuration" />
             <required-claims>
                 <claim name="roles" match="any">
@@ -17,6 +19,9 @@
                 </claim>
             </required-claims>
         </validate-jwt>
+
+        <!-- Request body size validation (OWASP API4) -->
+        <validate-content max-size="102400" size-exceeded-action="detect" />
 
         <!-- Validate the product ID parameter format (UUID) -->
         <choose>
@@ -50,6 +55,19 @@
         <trace source="AuditLog" severity="information">
             <message>@($"Product deleted: {context.Request.MatchedParameters.GetValueOrDefault("id", "unknown")} by {context.Request.Headers.GetValueOrDefault("Authorization", "unknown").Substring(0, 20)}...")</message>
         </trace>
+
+        <!-- Remove server fingerprinting headers (OWASP API8) -->
+        <set-header name="Server" exists-action="delete" />
+        <set-header name="X-Powered-By" exists-action="delete" />
+        <set-header name="X-AspNet-Version" exists-action="delete" />
+
+        <!-- Security headers (OWASP API8) -->
+        <set-header name="X-Content-Type-Options" exists-action="override">
+            <value>nosniff</value>
+        </set-header>
+        <set-header name="Strict-Transport-Security" exists-action="override">
+            <value>max-age=31536000; includeSubDomains</value>
+        </set-header>
     </outbound>
 
     <on-error>
