@@ -1,9 +1,12 @@
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json());
@@ -89,6 +92,96 @@ app.delete('/api/products/:id', (req, res) => {
   }
   products.splice(index, 1);
   res.status(204).send();
+});
+
+// ─── Scanner API Endpoints (for offline demo) ───
+
+const POLICIES_DIR = path.join(__dirname, '..', 'policies');
+const SCANNER_PATH = path.join(__dirname, '..', 'security-scanner', 'scanner.py');
+
+// List all policy files with content
+app.get('/api/scanner/policies', (req, res) => {
+  try {
+    const files = fs.readdirSync(POLICIES_DIR, { recursive: true })
+      .filter(f => f.endsWith('.xml'));
+    const policies = files.map(f => {
+      const filePath = path.join(POLICIES_DIR, f);
+      return {
+        name: f.replace(/\\/g, '/'),
+        content: fs.readFileSync(filePath, 'utf8'),
+        size: fs.statSync(filePath).size,
+      };
+    });
+    res.json({ data: policies });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to list policies', details: error.message });
+  }
+});
+
+// Scan a specific policy file
+app.get('/api/scanner/scan/:filename', (req, res) => {
+  const filePath = path.join(POLICIES_DIR, req.params.filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Policy file not found' });
+  }
+  try {
+    const result = execSync(
+      `python "${SCANNER_PATH}" "${filePath}" --format json`,
+      { encoding: 'utf8', timeout: 30000 }
+    );
+    res.json({ data: JSON.parse(result), file: req.params.filename });
+  } catch (error) {
+    const stdout = error.stdout || '';
+    try {
+      res.json({ data: JSON.parse(stdout), file: req.params.filename });
+    } catch {
+      res.status(500).json({ error: 'Scanner failed', details: error.message });
+    }
+  }
+});
+
+// Scan all policies
+app.get('/api/scanner/scan', (req, res) => {
+  try {
+    const result = execSync(
+      `python "${SCANNER_PATH}" "${POLICIES_DIR}" --format json`,
+      { encoding: 'utf8', timeout: 60000 }
+    );
+    res.json({ data: JSON.parse(result) });
+  } catch (error) {
+    const stdout = error.stdout || '';
+    try {
+      res.json({ data: JSON.parse(stdout) });
+    } catch {
+      res.status(500).json({ error: 'Scanner failed', details: error.message });
+    }
+  }
+});
+
+// Scan inline XML content (for PR simulation)
+app.post('/api/scanner/scan-content', (req, res) => {
+  const { content, filename = 'inline-policy.xml' } = req.body;
+  if (!content) {
+    return res.status(400).json({ error: 'Content is required' });
+  }
+  const tmpPath = path.join(__dirname, '.tmp-scan-policy.xml');
+  fs.writeFileSync(tmpPath, content, 'utf8');
+  try {
+    const result = execSync(
+      `python "${SCANNER_PATH}" "${tmpPath}" --format json`,
+      { encoding: 'utf8', timeout: 30000 }
+    );
+    res.json({ data: JSON.parse(result), file: filename });
+  } catch (error) {
+    const stdout = error.stdout || '';
+    try {
+      res.json({ data: JSON.parse(stdout), file: filename });
+    } catch {
+      res.status(500).json({ error: 'Scanner failed', details: error.message });
+    }
+  } finally {
+    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+  }
 });
 
 // Intentionally verbose error for demo — shows why APIM on-error policies matter
