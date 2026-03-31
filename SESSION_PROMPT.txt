@@ -1,0 +1,266 @@
+================================================================================
+APIM SECURITY DEMO - FULL SESSION CONTEXT & PROMPT
+================================================================================
+Saved: 2026-03-10
+Repository: https://github.com/sautalwar/how_APIM_works
+Branch: master (main working branch), feature/add-public-api (demo branch)
+PR #1: Open with failed CI checks (intentionally insecure policy demo)
+
+================================================================================
+ORIGINAL REQUEST
+================================================================================
+
+Build an end-to-end demo showcasing Azure API Management (APIM) security with
+GitHub Agentic Workflows. The goal is a customer-facing demo proving Microsoft's
+superiority in API security automation — covering:
+
+1. How APIM works end-to-end (architecture, policy pipeline, request lifecycle)
+2. OWASP API Top 10 vulnerabilities and how APIM policies mitigate them
+3. Automated policy scanning with a custom Python security scanner
+4. AI-powered security review via GitHub Agentic Workflow
+5. CI/CD pipelines that block insecure policy changes before deployment
+6. A live demo with an intentionally insecure PR that gets caught and blocked
+7. PDF documentation for offline review
+8. A presenter's guide with click-by-click demo steps and competitive analysis
+
+================================================================================
+WHAT WAS BUILT (Complete File Inventory)
+================================================================================
+
+DOCUMENTATION (docs/):
+  01-apim-architecture.md      - End-to-end APIM architecture with Mermaid diagrams
+  02-policy-pipeline.md        - Policy pipeline deep-dive (inbound/backend/outbound/on-error)
+  03-owasp-api-top10.md        - All 10 OWASP API 2023 vulnerabilities mapped to APIM policies
+  04-security-automation.md    - GitHub Agentic Workflow explanation
+  05-demo-walkthrough.md       - 30-minute demo script
+  06-azure-resource-inventory.md - Complete Azure resource inventory with specs
+  07-presenters-guide.md       - Click-by-click presenter's guide with competitive analysis
+
+PDF VERSIONS (docs/pdf/):
+  All 7 docs converted to PDF using md-to-pdf (npm package)
+
+SAMPLE API (sample-api/):
+  server.js                    - Express.js CRUD API for products
+  package.json                 - Node.js dependencies
+  Dockerfile                   - Container image (uses npm install --omit=dev)
+
+INFRASTRUCTURE AS CODE (infra/):
+  main.bicep                   - Main deployment orchestrator
+  modules/apim.bicep           - APIM instance + Named Values
+  modules/api-definition.bicep - Products API definition + operations
+  modules/policies.bicep       - Policy assignments (global, API, operation)
+  parameters/dev.bicepparam    - Development parameters (real values)
+  parameters/prod.bicepparam   - Production parameters (template)
+
+SECURITY POLICIES (policies/):
+  global-policy.xml            - Rate limiting, security headers, correlation IDs
+  api-level-policy.xml         - JWT validation, CORS, per-subscription rate limiting
+  operation-level-policy.xml   - Operation-specific JWT + request validation
+  public-api-policy.xml        - INTENTIONALLY INSECURE (for demo PR)
+  fragments/jwt-validation.xml
+  fragments/rate-limiting.xml
+  fragments/cors-policy.xml
+  fragments/ip-filter.xml
+  fragments/response-sanitization.xml
+  fragments/request-validation.xml
+
+SECURITY SCANNER (security-scanner/):
+  scanner.py                   - Python scanner with 18 rules, SARIF output
+  rules/rules.yaml             - 18 security rules (OWASP mapped)
+  requirements.txt             - pyyaml>=6.0
+  tests/test_scanner.py        - 5 tests (all passing)
+  tests/fixtures/secure-policy.xml
+  tests/fixtures/insecure-policy.xml
+
+GITHUB ACTIONS (.github/):
+  workflows/apim-security-scan.yml  - CI: lint, scan, SARIF upload, PR comments
+  workflows/deploy-apim.yml         - CD: pre-deploy scan, deploy dev, deploy prod
+  copilot/agentic-security-review.md - Agentic Workflow AI reviewer instructions
+
+DEMO SCENARIOS (demo/):
+  scenarios/01-insecure-policy-pr.md
+  scenarios/02-secure-policy-update.md
+  scenarios/03-production-deployment.md
+
+OTHER:
+  README.md                    - Project overview with architecture diagram
+  .gitignore                   - Python, Node, IDE, Azure, scanner output
+
+================================================================================
+AZURE RESOURCES DEPLOYED
+================================================================================
+
+Subscription: ME-MngEnvMCAP557563-sautalwar-1
+Subscription ID: 08608efd-deb6-42fa-8c1b-3bb2919b41cc
+Tenant ID: beb3fb80-9b3e-4ed0-b9eb-bf9ed2c578e5
+Admin: admin@mngenvmcap557563.onmicrosoft.com
+Resource Group: rg-apim-security-demo (eastus)
+
+APIM Instance:
+  Name: apim-security-demo-dev-exxlcmfwvdwzi
+  Tier: Developer
+  Gateway URL: https://apim-security-demo-dev-exxlcmfwvdwzi.azure-api.net
+  Developer Portal: https://apim-security-demo-dev-exxlcmfwvdwzi.developer.azure-api.net
+  Subscription Key (built-in all-access): 4ebbfcbaef1c4e07a512339b62d108ca
+
+Backend API (Container App):
+  URL: https://products-api-backend.ambitiousrock-3b12f8ac.eastus.azurecontainerapps.io
+  Image: ca9da16795a5acr.azurecr.io/products-api:latest
+
+Container Registry:
+  Name: ca9da16795a5acr (admin access enabled)
+
+App Registration:
+  Name: APIM Security Demo API
+  Client ID: 960c03f6-bc63-42de-bc2b-ae86ee5358d6
+
+GitHub Secrets Configured:
+  AZURE_SUBSCRIPTION_ID, AZURE_TENANT_ID, AZURE_APIM_NAME, AZURE_RESOURCE_GROUP
+
+GitHub Environments:
+  dev, production
+
+================================================================================
+KEY TECHNICAL DECISIONS & LESSONS LEARNED
+================================================================================
+
+1. APIM GLOBAL POLICY: <base/> is NOT allowed at global scope — global IS the
+   root. Removed all <base/> from global-policy.xml; replaced backend <base/>
+   with <forward-request timeout="30" />.
+
+2. NAMED VALUES: Policies using {{tenant-id}} and {{api-audience}} syntax
+   require Named Values to be created BEFORE policies referencing them. Added
+   them as resources in apim.bicep module.
+
+3. C# EXPRESSION ESCAPING: &quot; entities in XML attributes get double-escaped
+   when deployed via Bicep loadTextContent. Removed <choose> conditions that
+   used &quot;TRACE&quot; and &quot;https&quot; comparisons.
+
+4. ON-ERROR HANDLER CASCADE: <trace> accessing context.LastError.Message fails
+   when errors come from platform-level checks (subscription validation). This
+   causes the on-error handler itself to fail → generic 500. Solution: use
+   simplified <on-error /> block.
+
+5. POLICY PROPAGATION DELAY: After updating APIM policies, changes take
+   ~30-60 seconds to propagate. Requests during propagation use cached policy.
+
+6. APIM BACKEND SECTION: Cannot have both <base/> and <authentication-managed-
+   identity> — "backend section allows only one policy" error.
+
+7. APIM DEVELOPER TIER: Takes 20-47 minutes to provision initially. Subsequent
+   deployments (API definitions, policies) take seconds.
+
+8. BICEP .bicepparam: The "using" path must be relative to the param file
+   location, not CWD. Changed from 'main.bicep' to '../main.bicep'.
+
+9. CONTAINER APPS vs APP SERVICE: MCAP subscriptions have 0 App Service quota.
+   Container Apps works because it uses different quota.
+
+10. GITHUB EMU: Enterprise Managed Users (sautalwar_MSDEMO) cannot create
+    personal repos. Must use personal account (sautalwar) via gh auth switch.
+
+11. PYTHON SCANNER UNICODE: Emoji output (🔴🟡) fails with UnicodeEncodeError
+    on Windows PowerShell cp1252. Use --format sarif or PYTHONIOENCODING=utf-8.
+
+12. PDF GENERATION: weasyprint requires GTK/Pango libraries not on Windows.
+    md-to-pdf (npm) works using Puppeteer/Chromium headless.
+
+13. SCANNER XPATH: Python ElementTree doesn't support XPath union (|),
+    self:: axis, or compound predicates. Added _findall_union() helper,
+    required_pattern regex type, and compound_custom rule type.
+
+================================================================================
+WHAT'S WORKING (Verified)
+================================================================================
+
+✅ Backend API — all CRUD endpoints working through Container App
+✅ APIM Gateway — proxying requests to backend with security policies
+✅ Subscription Key enforcement — 401 without key
+✅ JWT Validation — 401 without valid token
+✅ Rate Limiting — 60/min per IP (global), 100/min per subscription (API)
+✅ Security Headers — X-Content-Type-Options, X-Frame-Options, CSP
+✅ Correlation IDs — X-Correlation-ID header on every response
+✅ Security Scanner — 18 rules, 5 tests passing, SARIF output
+✅ CI Pipeline — triggered on PR, scanner blocks insecure policies
+✅ PR #1 — intentionally insecure policy correctly caught and blocked
+✅ SARIF upload — findings visible in GitHub Security tab
+✅ PDF generation — all 7 docs converted
+✅ All docs pushed to GitHub
+
+================================================================================
+REMAINING WORK / POSSIBLE NEXT STEPS
+================================================================================
+
+1. DEMO COMPLETION: PR #1 is still open with failed CI. Could demo the "fix"
+   flow by creating a secure version, pushing, and showing CI pass.
+
+2. CI WORKFLOW BUG: The "Comment PR with scan results" step fails because
+   execSync throws on scanner exit code 1. Minor fix: wrap in try/catch or
+   use || true.
+
+3. AGENTIC WORKFLOW: The .github/copilot/agentic-security-review.md is
+   configured but the actual Copilot agentic review needs GitHub Copilot
+   Enterprise to trigger automatically on PRs.
+
+4. PRODUCTION DEPLOYMENT: The CD pipeline (deploy-apim.yml) is configured
+   but hasn't been run end-to-end with real Azure credentials (needs
+   AZURE_CREDENTIALS secret with service principal).
+
+5. CLEANUP: Consider whether to delete Azure resources after demo to avoid
+   charges (APIM Developer tier costs ~$50/month).
+
+6. LIVE DEMO PRACTICE: Walk through the presenter's guide
+   (docs/07-presenters-guide.md) end-to-end to ensure timing works for
+   30-minute slot.
+
+================================================================================
+HOW TO RESUME THIS WORK
+================================================================================
+
+1. Open terminal in: C:\Users\sautalwar\Downloads\repos\how_APIM_works
+2. Ensure Azure CLI is logged in: az login
+3. Ensure GitHub CLI is authenticated: gh auth status (use sautalwar account)
+4. APIM gateway: https://apim-security-demo-dev-exxlcmfwvdwzi.azure-api.net
+5. Backend: https://products-api-backend.ambitiousrock-3b12f8ac.eastus.azurecontainerapps.io
+
+Test APIM is still running:
+  curl -s -o /dev/null -w "%{http_code}" https://apim-security-demo-dev-exxlcmfwvdwzi.azure-api.net/products-api/products
+
+Run scanner:
+  cd security-scanner
+  python scanner.py --policy-dir ../policies --format sarif --output results.sarif
+
+Run tests:
+  cd security-scanner
+  python -m pytest tests/ -v
+
+Generate PDFs:
+  cd docs
+  npx md-to-pdf 01-apim-architecture.md  (repeat for each file)
+
+================================================================================
+COMPETITIVE POSITIONING (Key Talking Points)
+================================================================================
+
+vs AWS API Gateway:
+  - APIM has XML policy engine (declarative, auditable, scannable)
+  - AWS uses Lambda authorizers (code-based, harder to audit)
+  - APIM Developer Portal is built-in; AWS requires separate tooling
+
+vs Kong Gateway:
+  - APIM is fully managed PaaS; Kong requires infrastructure management
+  - APIM integrates natively with Azure AD; Kong needs plugin configuration
+  - APIM policies are XML-based and statically analyzable
+
+vs Google Apigee:
+  - APIM + GitHub = unified Microsoft ecosystem
+  - Apigee lacks native CI/CD integration at the policy level
+  - APIM Named Values + Key Vault = native secrets management
+
+Microsoft Differentiator:
+  APIM (security policies) + GitHub Actions (CI/CD) + Copilot (AI review)
+  = The only end-to-end automated API security solution from a single vendor
+
+================================================================================
+END OF SESSION PROMPT
+================================================================================

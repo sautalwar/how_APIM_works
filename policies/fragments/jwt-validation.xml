@@ -18,4 +18,14 @@
             <issuer>https://login.microsoftonline.com/{{tenant-id}}/v2.0</issuer>
         </issuers>
     </validate-jwt>
+    
+    <!-- Security headers (OWASP API8) -->
+    <set-header name="Server" exists-action="delete" />
+    <set-header name="X-Powered-By" exists-action="delete" />
+    <set-header name="X-Content-Type-Options" exists-action="override">
+        <value>nosniff</value>
+    </set-header>
+    <set-header name="Strict-Transport-Security" exists-action="override">
+        <value>max-age=31536000; includeSubDomains</value>
+    </set-header>
 </fragment>
