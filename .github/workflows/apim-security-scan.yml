@@ -5,6 +5,7 @@
 name: "🔒 APIM Policy Security Scan"
 
 on:
+  workflow_dispatch:  # Allow manual triggering
   pull_request:
     paths:
       - 'policies/**'
@@ -15,6 +16,7 @@ on:
     paths:
       - 'policies/**'
       - 'infra/**'
+      - 'security-scanner/**'
 
 permissions:
   contents: read
